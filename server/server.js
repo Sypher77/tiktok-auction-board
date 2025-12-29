@@ -1,294 +1,324 @@
-/**
- * TikTok Live Auction Server
- * Serves the overlay via HTTP and forwards TikTok Live events via WebSocket
- */
-
 const express = require('express');
 const http = require('http');
-const path = require('path');
-const { WebcastPushConnection } = require('tiktok-live-connector');
 const WebSocket = require('ws');
+const path = require('path');
 
-class TikTokAuctionServer {
-    constructor(port = 8080) {
-        this.port = port;
-        this.tiktokConnection = null;
-        this.wsServer = null;
-        this.clients = new Set();
-        this.currentUsername = null;
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-        // Statistics
-        this.stats = {
-            totalGifts: 0,
-            totalCoins: 0,
-            connectedClients: 0
-        };
+// ========================================
+// GLOBAL STATE - SINGLE SOURCE OF TRUTH
+// ========================================
+const globalState = {
+    // Timer state
+    timerRemaining: 60,  // seconds
+    timerTotal: 60,
+    timerRunning: false,
+    timerFrozen: false,
+    timerInterval: null,
 
-        this.init();
+    // Leaderboard state
+    users: new Map(),  // userId -> {userId, username, avatar, coins, rank}
+
+    // TikTok connection
+    tiktokConnected: false,
+    tiktokUsername: null
+};
+
+// servir les fichiers du dossier parent (index.html + admin.html)
+app.use(express.static(path.join(__dirname, '..')));
+
+// ========================================
+// TIMER LOGIC (SERVER-SIDE)
+// ========================================
+
+function startTimer() {
+    if (globalState.timerFrozen) {
+        console.log('⚠️ Timer is frozen, cannot start');
+        return;
     }
 
-    init() {
-        // Create Express app
-        const app = express();
-
-        // Serve static files from parent directory
-        const publicDir = path.join(__dirname, '..');
-        app.use(express.static(publicDir));
-
-        // Default route serves index.html
-        app.get('/', (req, res) => {
-            res.sendFile(path.join(publicDir, 'index.html'));
-        });
-
-        // Create HTTP server
-        const httpServer = http.createServer(app);
-
-        // Attach WebSocket server to HTTP server
-        this.wsServer = new WebSocket.Server({ server: httpServer });
-
-        this.wsServer.on('connection', (ws) => {
-            console.log('✅ New client connected');
-            this.clients.add(ws);
-            this.stats.connectedClients = this.clients.size;
-
-            ws.on('message', (message) => {
-                try {
-                    const data = JSON.parse(message);
-                    this.handleClientMessage(ws, data);
-                } catch (error) {
-                    console.error('Error parsing message:', error);
-                }
-            });
-
-            ws.on('close', () => {
-                console.log('❌ Client disconnected');
-                this.clients.delete(ws);
-                this.stats.connectedClients = this.clients.size;
-            });
-
-            ws.on('error', (error) => {
-                console.error('WebSocket error:', error);
-            });
-        });
-
-        // Start HTTP server
-        httpServer.listen(this.port, '0.0.0.0', () => {
-            console.log(`🚀 Server running on http://0.0.0.0:${this.port}`);
-            console.log(`📡 WebSocket available on ws://0.0.0.0:${this.port}`);
-            console.log(`💡 Local: http://localhost:${this.port}`);
-            console.log(`\n💡 Open in browser: http://localhost:${this.port}`);
-            console.log('📱 Waiting for connections...\n');
-        });
+    if (globalState.timerRunning) {
+        console.log('⚠️ Timer already running');
+        return;
     }
 
+    if (globalState.timerRemaining <= 0) {
+        globalState.timerRemaining = globalState.timerTotal;
+    }
 
-    handleClientMessage(ws, data) {
-        switch (data.type) {
-            case 'connect':
-                this.connectToTikTok(ws, data.username);
-                break;
+    globalState.timerRunning = true;
+    console.log('▶️ Timer started');
 
-            case 'disconnect':
-                this.disconnectFromTikTok();
-                break;
+    globalState.timerInterval = setInterval(() => {
+        globalState.timerRemaining--;
 
-            default:
-                console.log('Unknown message type:', data.type);
+        // Broadcast timer update to all clients
+        broadcastTimerUpdate();
+
+        if (globalState.timerRemaining <= 0) {
+            freezeTimer();
         }
+    }, 1000);
+
+    // Send immediate update to all clients
+    broadcastTimerUpdate();
+}
+
+function pauseTimer() {
+    if (!globalState.timerRunning) {
+        return;
     }
 
-    async connectToTikTok(ws, username) {
-        if (!username) {
-            this.sendToClient(ws, {
-                type: 'error',
-                message: 'Username is required'
-            });
-            return;
-        }
+    globalState.timerRunning = false;
+    clearInterval(globalState.timerInterval);
+    globalState.timerInterval = null;
+    console.log('⏸️ Timer paused');
 
-        // Disconnect existing connection
-        if (this.tiktokConnection) {
-            await this.disconnectFromTikTok();
-        }
+    broadcastTimerUpdate();
+}
 
-        console.log(`\n🔗 Connecting to TikTok: @${username}`);
-        this.currentUsername = username;
+function resetTimer() {
+    pauseTimer();
+    globalState.timerRemaining = globalState.timerTotal;
+    globalState.timerFrozen = false;
+    console.log('🔄 Timer reset');
 
-        try {
-            // Create TikTok connection
-            this.tiktokConnection = new WebcastPushConnection(username);
+    broadcastTimerUpdate();
+}
 
-            // Event: Connected
-            this.tiktokConnection.on('connected', () => {
-                console.log(`✅ Successfully connected to @${username}'s live stream`);
-                this.broadcast({
-                    type: 'connected',
-                    username: username
-                });
-            });
+function freezeTimer() {
+    pauseTimer();
+    globalState.timerFrozen = true;
+    console.log('❄️ Timer frozen at 0:00');
 
-            // Event: Disconnected
-            this.tiktokConnection.on('disconnected', () => {
-                console.log('❌ Disconnected from TikTok live');
-                this.broadcast({
-                    type: 'disconnected'
-                });
-            });
+    broadcastTimerUpdate();
+    logFinalRankings();
+}
 
-            // Event: Gift (THIS IS THE MAIN EVENT)
-            this.tiktokConnection.on('gift', (data) => {
-                this.handleGift(data);
-            });
-
-            // Event: Like
-            this.tiktokConnection.on('like', (data) => {
-                // Optional: Log likes but don't send to overlay
-                console.log(`❤️ ${data.uniqueId} liked (${data.likeCount} likes)`);
-            });
-
-            // Event: Share
-            this.tiktokConnection.on('share', (data) => {
-                console.log(`🔄 ${data.uniqueId} shared the live`);
-            });
-
-            // Event: Follow
-            this.tiktokConnection.on('follow', (data) => {
-                console.log(`➕ ${data.uniqueId} followed`);
-            });
-
-            // Event: Chat
-            this.tiktokConnection.on('chat', (data) => {
-                // Optional: Log chat messages
-                // console.log(`💬 ${data.uniqueId}: ${data.comment}`);
-            });
-
-            // Event: Viewer count update
-            this.tiktokConnection.on('roomUser', (data) => {
-                console.log(`👥 Viewers: ${data.viewerCount}`);
-            });
-
-            // Error handling
-            this.tiktokConnection.on('error', (error) => {
-                console.error('❌ TikTok connection error:', error);
-                this.broadcast({
-                    type: 'error',
-                    message: error.message || 'Connection error'
-                });
-            });
-
-            // Connect
-            await this.tiktokConnection.connect();
-
-        } catch (error) {
-            console.error('❌ Failed to connect to TikTok:', error);
-
-            let errorMessage = 'Connection failed';
-
-            if (error.message.includes('LIVE has ended')) {
-                errorMessage = 'Le live TikTok est terminé ou n\'existe pas';
-            } else if (error.message.includes('Unable to retrieve room')) {
-                errorMessage = 'Impossible de trouver le live. Vérifiez que @' + username + ' est bien en live';
-            } else {
-                errorMessage = error.message;
-            }
-
-            this.sendToClient(ws, {
-                type: 'error',
-                message: errorMessage
-            });
-        }
+function setTimerDuration(seconds) {
+    if (globalState.timerRunning) {
+        pauseTimer();
     }
 
-    handleGift(data) {
-        const giftName = data.giftName;
-        const giftCoins = data.diamondCount || 1; // Coin value of the gift
-        const repeatCount = data.repeatCount || 1; // How many times sent
-        const totalCoins = giftCoins * repeatCount;
+    globalState.timerTotal = seconds;
+    globalState.timerRemaining = seconds;
+    globalState.timerFrozen = false;
+    console.log(`⏱️ Timer set to ${seconds}s`);
 
-        const userInfo = {
-            userId: data.userId,
-            uniqueId: data.uniqueId,
-            username: data.nickname || data.uniqueId,
-            profilePictureUrl: data.profilePictureUrl
-        };
+    broadcastTimerUpdate();
+}
 
-        console.log(`\n🎁 GIFT RECEIVED:`);
-        console.log(`   User: ${userInfo.username} (@${userInfo.uniqueId})`);
-        console.log(`   Gift: ${giftName} x${repeatCount}`);
-        console.log(`   Coins: ${totalCoins} 🪙`);
+// ========================================
+// LEADERBOARD LOGIC
+// ========================================
 
-        // Update statistics
-        this.stats.totalGifts += repeatCount;
-        this.stats.totalCoins += totalCoins;
+function handleGift(userInfo, coins) {
+    if (globalState.timerFrozen) {
+        console.log('⚠️ Timer frozen, ignoring gift');
+        return;
+    }
 
-        // Broadcast to all connected clients
-        this.broadcast({
-            type: 'gift',
-            user: userInfo,
-            giftName: giftName,
-            giftCoins: totalCoins,
-            repeatCount: repeatCount,
-            timestamp: Date.now()
+    const userId = userInfo.userId || userInfo.uniqueId;
+
+    if (globalState.users.has(userId)) {
+        // Update existing user
+        const user = globalState.users.get(userId);
+        user.coins += coins;
+        console.log(`💰 ${user.username}: +${coins} coins (total: ${user.coins})`);
+    } else {
+        // Add new user
+        globalState.users.set(userId, {
+            userId: userId,
+            username: userInfo.username || userInfo.uniqueId,
+            avatar: userInfo.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
+            coins: coins,
+            rank: 0
         });
+        console.log(`✨ New user: ${userInfo.username || userInfo.uniqueId} with ${coins} coins`);
     }
 
-    async disconnectFromTikTok() {
-        if (this.tiktokConnection) {
-            console.log('🔌 Disconnecting from TikTok...');
-            await this.tiktokConnection.disconnect();
-            this.tiktokConnection = null;
-            this.currentUsername = null;
-        }
-    }
+    updateRankings();
+    broadcastLeaderboardUpdate();
+}
 
-    broadcast(data) {
-        const message = JSON.stringify(data);
-        this.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(message);
-            }
-        });
-    }
+function updateRankings() {
+    const sortedUsers = Array.from(globalState.users.values())
+        .sort((a, b) => b.coins - a.coins);
 
-    sendToClient(client, data) {
+    sortedUsers.forEach((user, index) => {
+        user.rank = index + 1;
+    });
+}
+
+function logFinalRankings() {
+    console.log('🏆 FINAL RANKINGS:');
+    const rankings = Array.from(globalState.users.values())
+        .sort((a, b) => b.coins - a.coins);
+
+    rankings.forEach((user, index) => {
+        console.log(`  #${index + 1} - ${user.username}: ${user.coins} coins`);
+    });
+}
+
+function clearLeaderboard() {
+    globalState.users.clear();
+    console.log('🗑️ Leaderboard cleared');
+    broadcastLeaderboardUpdate();
+}
+
+// ========================================
+// WEBSOCKET BROADCASTING
+// ========================================
+
+function broadcastTimerUpdate() {
+    const message = {
+        type: 'timer:update',
+        timerRemaining: globalState.timerRemaining,
+        timerTotal: globalState.timerTotal,
+        timerRunning: globalState.timerRunning,
+        timerFrozen: globalState.timerFrozen
+    };
+
+    broadcast(message);
+}
+
+function broadcastLeaderboardUpdate() {
+    const users = Array.from(globalState.users.values())
+        .sort((a, b) => b.coins - a.coins);
+
+    const message = {
+        type: 'leaderboard:update',
+        users: users
+    };
+
+    broadcast(message);
+}
+
+function broadcast(message) {
+    const payload = JSON.stringify(message);
+    let sentCount = 0;
+
+    wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+            client.send(payload);
+            sentCount++;
         }
-    }
+    });
 
-    printStats() {
-        console.log('\n📊 STATISTICS:');
-        console.log(`   Total Gifts: ${this.stats.totalGifts}`);
-        console.log(`   Total Coins: ${this.stats.totalCoins} 🪙`);
-        console.log(`   Connected Clients: ${this.stats.connectedClients}`);
-        console.log(`   Current Live: ${this.currentUsername || 'None'}`);
+    // console.log(`📡 Broadcast: ${message.type} to ${sentCount} client(s)`);
+}
+
+function sendCompleteState(ws) {
+    const users = Array.from(globalState.users.values())
+        .sort((a, b) => b.coins - a.coins);
+
+    const message = {
+        type: 'state:init',
+        timerRemaining: globalState.timerRemaining,
+        timerTotal: globalState.timerTotal,
+        timerRunning: globalState.timerRunning,
+        timerFrozen: globalState.timerFrozen,
+        users: users,
+        tiktokConnected: globalState.tiktokConnected
+    };
+
+    ws.send(JSON.stringify(message));
+    console.log('📤 Sent complete state to new client');
+}
+
+// ========================================
+// WEBSOCKET CONNECTION HANDLING
+// ========================================
+
+wss.on('connection', (ws) => {
+    console.log('✅ Client connected');
+
+    // Send complete state to new client
+    sendCompleteState(ws);
+
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            handleClientMessage(ws, data);
+        } catch (error) {
+            console.error('❌ Error parsing message:', error);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log('👋 Client disconnected');
+    });
+});
+
+function handleClientMessage(ws, data) {
+    console.log(`📥 Received: ${data.type}`);
+
+    switch (data.type) {
+        // Timer commands
+        case 'timer:start':
+            startTimer();
+            break;
+
+        case 'timer:pause':
+            pauseTimer();
+            break;
+
+        case 'timer:reset':
+            resetTimer();
+            break;
+
+        case 'timer:setDuration':
+            if (data.seconds && data.seconds > 0) {
+                setTimerDuration(data.seconds);
+            }
+            break;
+
+        // TikTok connection
+        case 'connect':
+            // This would connect to TikTok Live (not implemented in this sync-only version)
+            console.log(`🔗 TikTok connection requested: @${data.username}`);
+            globalState.tiktokConnected = true;
+            globalState.tiktokUsername = data.username;
+
+            ws.send(JSON.stringify({
+                type: 'connected',
+                username: data.username
+            }));
+            break;
+
+        // Gift simulation (for testing)
+        case 'gift':
+            handleGift(data.user, data.giftCoins);
+            break;
+
+        // Leaderboard management
+        case 'leaderboard:clear':
+            clearLeaderboard();
+            break;
+
+        default:
+            console.log(`⚠️ Unknown message type: ${data.type}`);
     }
 }
 
-// Start server
+// ========================================
+// SERVER STARTUP
+// ========================================
+
 const PORT = process.env.PORT || 8080;
-const server = new TikTokAuctionServer(PORT);
-
-// Print stats every 30 seconds
-setInterval(() => {
-    if (server.currentUsername) {
-        server.printStats();
-    }
-}, 30000);
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('\n\n🛑 Shutting down server...');
-    server.printStats();
-    await server.disconnectFromTikTok();
-    process.exit(0);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log('');
+    console.log('🚀 ========================================');
+    console.log('🚀 TikTok Auction Board Server');
+    console.log('🚀 ========================================');
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🚀 Local: http://localhost:${PORT}`);
+    console.log('🚀 ========================================');
+    console.log('');
+    console.log('📊 Global State initialized:');
+    console.log(`   Timer: ${globalState.timerTotal}s`);
+    console.log(`   Users: ${globalState.users.size}`);
+    console.log('');
 });
-
-console.log('\n=================================');
-console.log('  TikTok Auction Server Ready!');
-console.log('=================================');
-console.log('\n💡 Instructions:');
-console.log('1. Ouvrez http://localhost:8080 dans votre navigateur');
-console.log('2. Entrez le @username d\'un live TikTok actif');
-console.log('3. Cliquez sur "Se connecter"');
-console.log('4. Les donations apparaîtront en temps réel!\n');

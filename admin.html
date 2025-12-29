@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Timer Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .admin-panel {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 30px;
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status.connected .status-dot {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .timer-display {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 30px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            transition: all 0.2s;
+        }
+
+        input[type="number"]:focus,
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 14px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            grid-column: span 2;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .presets {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 25px;
+        }
+
+        .preset-btn {
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .preset-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .preset-btn.active {
+            background: #667eea;
+            border-color: #667eea;
+            color: white;
+        }
+
+        .divider {
+            height: 1px;
+            background: #e0e0e0;
+            margin: 25px 0;
+        }
+
+        .info {
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="admin-panel">
+        <h1>⚙️ Admin Control</h1>
+        <p class="subtitle">Contrôle du timer TikTok Live</p>
+
+        <div id="status" class="status">
+            <span class="status-dot"></span>
+            <span class="status-text">Connexion...</span>
+        </div>
+
+        <div class="timer-display" id="timerDisplay">0:00</div>
+
+        <!-- TikTok Live Connection -->
+        <div class="control-group">
+            <label>🎥 Connexion TikTok Live</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="tiktokUsername" placeholder="@username"
+                    style="flex: 1; padding: 14px 16px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 10px;">
+                <button class="btn btn-primary" id="connectTikTokBtn"
+                    style="grid-column: auto; padding: 14px 20px; white-space: nowrap;">
+                    🔗 Connecter
+                </button>
+            </div>
+            <div id="tiktokStatus" class="status" style="margin-bottom: 0;">
+                <span class="status-dot"></span>
+                <span id="tiktokStatusText" class="status-text">Déconnecté</span>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="control-group">
+            <label>⏱️ Presets rapides</label>
+            <div class="presets">
+                <button class="preset-btn" data-seconds="10">10s</button>
+                <button class="preset-btn" data-seconds="30">30s</button>
+                <button class="preset-btn active" data-seconds="60">1min</button>
+                <button class="preset-btn" data-seconds="300">5min</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Durée personnalisée (minutes)</label>
+            <input type="number" id="customMinutes" placeholder="Ex: 10" min="0" step="0.5">
+        </div>
+
+        <button class="btn btn-primary" id="applyBtn">
+            ✅ Appliquer
+        </button>
+
+        <div class="divider"></div>
+
+        <div class="btn-grid">
+            <button class="btn btn-success" id="startBtn">▶️ Start</button>
+            <button class="btn btn-warning" id="pauseBtn">⏸️ Pause</button>
+            <button class="btn btn-danger" id="resetBtn">🔄 Reset</button>
+            <button class="btn btn-secondary" id="clearBtn">🗑️ Clear</button>
+        </div>
+
+        <p class="info">Synchronisé en temps réel sur tous les écrans</p>
+    </div>
+
+    <script>
+        class AdminControl {
+            constructor() {
+                this.ws = null;
+                this.elements = {
+                    status: document.getElementById('status'),
+                    statusText: document.querySelector('.status-text'),
+                    timerDisplay: document.getElementById('timerDisplay'),
+                    customMinutes: document.getElementById('customMinutes'),
+                    applyBtn: document.getElementById('applyBtn'),
+                    startBtn: document.getElementById('startBtn'),
+                    pauseBtn: document.getElementById('pauseBtn'),
+                    resetBtn: document.getElementById('resetBtn'),
+                    clearBtn: document.getElementById('clearBtn'),
+                    presetBtns: document.querySelectorAll('.preset-btn'),
+                    // TikTok connection
+                    tiktokUsername: document.getElementById('tiktokUsername'),
+                    connectTikTokBtn: document.getElementById('connectTikTokBtn'),
+                    tiktokStatus: document.getElementById('tiktokStatus'),
+                    tiktokStatusText: document.getElementById('tiktokStatusText'),
+                };
+
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.connectWebSocket();
+            }
+
+            getWebSocketUrl() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host;
+
+                if (host.includes('localhost') || host.includes('127.0.0.1')) {
+                    return 'ws://localhost:8080';
+                }
+
+                return `${protocol}//${host}`;
+            }
+
+            setupEventListeners() {
+                // TikTok connection
+                this.elements.connectTikTokBtn.addEventListener('click', () => {
+                    const username = this.elements.tiktokUsername.value.trim().replace('@', '');
+                    if (!username) {
+                        alert('Veuillez entrer un nom d\'utilisateur TikTok');
+                        return;
+                    }
+
+                    this.updateTikTokStatus('connecting', 'Connexion...');
+                    this.elements.connectTikTokBtn.disabled = true;
+                    this.elements.connectTikTokBtn.textContent = '⏳ Connexion...';
+
+                    this.sendCommand('connect', { username: username });
+                });
+
+                // Apply custom timer
+                this.elements.applyBtn.addEventListener('click', () => {
+                    const minutes = parseFloat(this.elements.customMinutes.value);
+                    if (minutes && minutes > 0) {
+                        const seconds = Math.floor(minutes * 60);
+                        this.sendCommand('timer:setDuration', { seconds });
+                        this.elements.customMinutes.value = '';
+                    }
+                });
+
+                // Preset buttons
+                this.elements.presetBtns.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const seconds = parseInt(e.target.dataset.seconds);
+                        this.sendCommand('timer:setDuration', { seconds });
+                        this.updatePresetButtons(e.target);
+                    });
+                });
+
+                // Control buttons
+                this.elements.startBtn.addEventListener('click', () => this.sendCommand('timer:start'));
+                this.elements.pauseBtn.addEventListener('click', () => this.sendCommand('timer:pause'));
+                this.elements.resetBtn.addEventListener('click', () => {
+                    if (confirm('Réinitialiser le timer ?')) {
+                        this.sendCommand('timer:reset');
+                    }
+                });
+                this.elements.clearBtn.addEventListener('click', () => {
+                    if (confirm('Effacer le classement ?')) {
+                        this.sendCommand('leaderboard:clear');
+                    }
+                });
+            }
+
+            connectWebSocket() {
+                const url = this.getWebSocketUrl();
+                console.log('Connecting to:', url);
+
+                this.ws = new WebSocket(url);
+
+                this.ws.onopen = () => {
+                    console.log('✅ Connected');
+                    this.updateStatus('connected', 'Connecté');
+                };
+
+                this.ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    this.handleMessage(data);
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.updateStatus('disconnected', 'Erreur de connexion');
+                };
+
+                this.ws.onclose = () => {
+                    console.log('Disconnected. Reconnecting...');
+                    this.updateStatus('disconnected', 'Reconnexion...');
+                    setTimeout(() => this.connectWebSocket(), 3000);
+                };
+            }
+
+            sendCommand(type, data = {}) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type, ...data }));
+                    console.log('📤 Sent:', type);
+                }
+            }
+
+            handleMessage(data) {
+                switch (data.type) {
+                    case 'state:init':
+                    case 'timer:update':
+                        this.updateTimerDisplay(data.timerRemaining, data.timerRunning, data.timerFrozen);
+                        break;
+
+                    case 'connected':
+                        this.updateTikTokStatus('connected', `Connecté: @${data.username}`);
+                        this.elements.connectTikTokBtn.disabled = false;
+                        this.elements.connectTikTokBtn.textContent = '✅ Connecté';
+                        break;
+
+                    case 'error':
+                        this.updateTikTokStatus('disconnected', 'Erreur de connexion');
+                        this.elements.connectTikTokBtn.disabled = false;
+                        this.elements.connectTikTokBtn.textContent = '🔗 Connecter';
+                        alert('Erreur: ' + data.message);
+                        break;
+                }
+            }
+
+            updateTimerDisplay(remaining, running, frozen) {
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+                const display = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                this.elements.timerDisplay.textContent = display;
+
+                // Update button states
+                this.elements.startBtn.disabled = running || frozen;
+                this.elements.pauseBtn.disabled = !running;
+            }
+
+            updateStatus(status, text) {
+                this.elements.status.className = `status ${status}`;
+                this.elements.statusText.textContent = text;
+            }
+
+            updateTikTokStatus(status, text) {
+                this.elements.tiktokStatus.className = `status ${status}`;
+                this.elements.tiktokStatusText.textContent = text;
+            }
+
+            updatePresetButtons(activeBtn) {
+                this.elements.presetBtns.forEach(btn => btn.classList.remove('active'));
+                if (activeBtn) {
+                    activeBtn.classList.add('active');
+                }
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            new AdminControl();
+        });
+    </script>
+</body>
+
+</html>

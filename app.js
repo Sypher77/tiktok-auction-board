@@ -1,27 +1,20 @@
 /**
  * TikTok Live Auction Board - Main Application
- * Handles UI, timer logic, and WebSocket connection to TikTok server
+ * WebSocket-driven UI - All state managed server-side
  */
 
 class AuctionBoard {
     constructor() {
         // Configuration
         this.config = {
-            wsUrl: 'ws://localhost:8080',
+            wsUrl: this.getWebSocketUrl(),
             maxDisplay: 5,
             autoStart: false,
-            timerDuration: 60, // seconds
         };
 
-        // State
+        // Local UI state only (NO business logic state)
         this.state = {
-            users: new Map(), // userId -> {username, avatar, coins, rank}
-            timerRemaining: 0,
-            timerTotal: 60,
-            timerRunning: false,
-            timerFrozen: false,
             connected: false,
-            timerInterval: null,
         };
 
         // WebSocket
@@ -34,7 +27,7 @@ class AuctionBoard {
             connectBtn: document.getElementById('connectBtn'),
             connectionStatus: document.getElementById('connectionStatus'),
             statusText: document.querySelector('.status-text'),
-            
+
             // Timer Controls
             presetBtns: document.querySelectorAll('.preset-btn'),
             customTimer: document.getElementById('customTimer'),
@@ -42,12 +35,12 @@ class AuctionBoard {
             startTimer: document.getElementById('startTimer'),
             pauseTimer: document.getElementById('pauseTimer'),
             resetTimer: document.getElementById('resetTimer'),
-            
+
             // Options
             autoStart: document.getElementById('autoStart'),
             maxDisplay: document.getElementById('maxDisplay'),
             toggleOBS: document.getElementById('toggleOBS'),
-            
+
             // Overlay
             timerDisplay: document.getElementById('timerDisplay'),
             leaderboard: document.getElementById('leaderboard'),
@@ -58,11 +51,25 @@ class AuctionBoard {
 
     init() {
         this.setupEventListeners();
-        this.updateTimerDisplay();
         this.checkURLParams();
-        
-        // Load saved preferences
         this.loadPreferences();
+
+        // Auto-connect WebSocket on page load
+        this.connectWebSocket();
+    }
+
+    getWebSocketUrl() {
+        // Detect if running on Render (HTTPS) or localhost
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+
+        // If localhost, use port 8080
+        if (host.includes('localhost') || host.includes('127.0.0.1')) {
+            return 'ws://localhost:8080';
+        }
+
+        // Otherwise use same host (Render deployment)
+        return `${protocol}//${host}`;
     }
 
     setupEventListeners() {
@@ -87,10 +94,14 @@ class AuctionBoard {
             }
         });
 
-        // Timer controls
-        this.elements.startTimer.addEventListener('click', () => this.startTimer());
-        this.elements.pauseTimer.addEventListener('click', () => this.pauseTimer());
-        this.elements.resetTimer.addEventListener('click', () => this.resetTimer());
+        // Timer controls - NOW SEND WEBSOCKET COMMANDS
+        this.elements.startTimer.addEventListener('click', () => this.sendCommand('timer:start'));
+        this.elements.pauseTimer.addEventListener('click', () => this.sendCommand('timer:pause'));
+        this.elements.resetTimer.addEventListener('click', () => {
+            if (confirm('Voulez-vous réinitialiser le timer ?')) {
+                this.sendCommand('timer:reset');
+            }
+        });
 
         // Options
         this.elements.autoStart.addEventListener('change', (e) => {
@@ -100,7 +111,7 @@ class AuctionBoard {
 
         this.elements.maxDisplay.addEventListener('change', (e) => {
             this.config.maxDisplay = parseInt(e.target.value) || 5;
-            this.renderLeaderboard();
+            this.renderLeaderboard([]); // Re-render with current data
             this.savePreferences();
         });
 
@@ -113,15 +124,12 @@ class AuctionBoard {
         document.addEventListener('keydown', (e) => {
             if (e.key === ' ' && e.target.tagName !== 'INPUT') {
                 e.preventDefault();
-                if (this.state.timerRunning) {
-                    this.pauseTimer();
-                } else if (!this.state.timerFrozen) {
-                    this.startTimer();
-                }
+                // Toggle timer (send command to server)
+                this.sendCommand('timer:start'); // Server will ignore if already running
             }
             if (e.key === 'r' && e.ctrlKey) {
                 e.preventDefault();
-                this.resetTimer();
+                this.sendCommand('timer:reset');
             }
         });
     }
@@ -137,34 +145,15 @@ class AuctionBoard {
     // WebSocket Connection
     // ========================================
 
-    connectToTikTok() {
-        const username = this.elements.tiktokUsername.value.trim().replace('@', '');
-        
-        if (!username) {
-            alert('Veuillez entrer un nom d\'utilisateur TikTok');
-            return;
-        }
+    connectWebSocket() {
+        console.log(`🔌 Connecting to WebSocket: ${this.config.wsUrl}`);
 
-        this.updateConnectionStatus('connecting');
-        this.elements.connectBtn.disabled = true;
-        this.elements.connectBtn.textContent = 'Connexion...';
-
-        // Close existing connection
-        if (this.ws) {
-            this.ws.close();
-        }
-
-        // Connect to WebSocket server
         try {
             this.ws = new WebSocket(this.config.wsUrl);
 
             this.ws.onopen = () => {
-                console.log('WebSocket connected');
-                // Send username to server
-                this.ws.send(JSON.stringify({
-                    type: 'connect',
-                    username: username
-                }));
+                console.log('✅ WebSocket connected');
+                this.state.connected = true;
             };
 
             this.ws.onmessage = (event) => {
@@ -173,44 +162,57 @@ class AuctionBoard {
             };
 
             this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                this.updateConnectionStatus('disconnected');
-                this.elements.connectBtn.disabled = false;
-                this.elements.connectBtn.textContent = 'Se connecter';
-                alert('Erreur de connexion. Vérifiez que le serveur est démarré.');
+                console.error('❌ WebSocket error:', error);
             };
 
             this.ws.onclose = () => {
-                console.log('WebSocket disconnected');
-                this.updateConnectionStatus('disconnected');
-                this.elements.connectBtn.disabled = false;
-                this.elements.connectBtn.textContent = 'Se connecter';
+                console.log('🔌 WebSocket disconnected. Reconnecting in 3s...');
                 this.state.connected = false;
+
+                // Auto-reconnect
+                setTimeout(() => this.connectWebSocket(), 3000);
             };
 
         } catch (error) {
-            console.error('Connection error:', error);
-            this.updateConnectionStatus('disconnected');
-            this.elements.connectBtn.disabled = false;
-            this.elements.connectBtn.textContent = 'Se connecter';
+            console.error('❌ Connection error:', error);
+            setTimeout(() => this.connectWebSocket(), 3000);
         }
     }
 
+    sendCommand(type, data = {}) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('⚠️ WebSocket not connected');
+            return;
+        }
+
+        const message = { type, ...data };
+        this.ws.send(JSON.stringify(message));
+        console.log(`📤 Sent: ${type}`);
+    }
+
     handleWebSocketMessage(data) {
+        console.log(`📥 Received: ${data.type}`);
+
         switch (data.type) {
-            case 'connected':
-                this.updateConnectionStatus('connected');
-                this.elements.connectBtn.textContent = 'Connecté ✓';
-                this.state.connected = true;
-                
-                // Auto-start timer if enabled
-                if (this.config.autoStart && !this.state.timerRunning) {
-                    setTimeout(() => this.startTimer(), 1000);
-                }
+            case 'state:init':
+                // Complete state received (new connection)
+                this.handleStateInit(data);
                 break;
 
-            case 'gift':
-                this.handleGift(data.user, data.giftCoins);
+            case 'timer:update':
+                // Timer state changed
+                this.handleTimerUpdate(data);
+                break;
+
+            case 'leaderboard:update':
+                // Leaderboard changed
+                this.handleLeaderboardUpdate(data);
+                break;
+
+            case 'connected':
+                // TikTok connection confirmed
+                this.updateConnectionStatus('connected');
+                this.elements.connectBtn.textContent = 'Connecté ✓';
                 break;
 
             case 'error':
@@ -223,156 +225,95 @@ class AuctionBoard {
         }
     }
 
+    // ========================================
+    // State Update Handlers
+    // ========================================
+
+    handleStateInit(data) {
+        console.log('📊 Received complete state from server');
+
+        // Update timer display
+        this.updateTimerDisplay(data.timerRemaining, data.timerTotal, data.timerRunning, data.timerFrozen);
+
+        // Update leaderboard
+        this.renderLeaderboard(data.users || []);
+
+        // Update connection status
+        if (data.tiktokConnected) {
+            this.updateConnectionStatus('connected');
+        }
+    }
+
+    handleTimerUpdate(data) {
+        this.updateTimerDisplay(data.timerRemaining, data.timerTotal, data.timerRunning, data.timerFrozen);
+    }
+
+    handleLeaderboardUpdate(data) {
+        this.renderLeaderboard(data.users || []);
+    }
+
+    updateTimerDisplay(remaining, total, running, frozen) {
+        const minutes = Math.floor(remaining / 60);
+        const seconds = remaining % 60;
+        const display = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+        this.elements.timerDisplay.textContent = display;
+
+        // Update timer classes
+        if (frozen) {
+            this.elements.timerDisplay.classList.add('frozen');
+        } else {
+            this.elements.timerDisplay.classList.remove('frozen');
+        }
+
+        // Update button states
+        this.elements.startTimer.disabled = running || frozen;
+        this.elements.pauseTimer.disabled = !running;
+    }
+
+    // ========================================
+    // TikTok Connection (keeps existing logic)
+    // ========================================
+
+    connectToTikTok() {
+        const username = this.elements.tiktokUsername.value.trim().replace('@', '');
+
+        if (!username) {
+            alert('Veuillez entrer un nom d\'utilisateur TikTok');
+            return;
+        }
+
+        this.updateConnectionStatus('connecting');
+        this.elements.connectBtn.disabled = true;
+        this.elements.connectBtn.textContent = 'Connexion...';
+
+        // Send connection request to server
+        this.sendCommand('connect', { username: username });
+
+        // Auto-start timer if enabled
+        if (this.config.autoStart) {
+            setTimeout(() => this.sendCommand('timer:start'), 1000);
+        }
+    }
+
     updateConnectionStatus(status) {
         this.elements.connectionStatus.className = `status ${status}`;
-        
+
         const statusTexts = {
             disconnected: 'Déconnecté',
             connecting: 'Connexion...',
             connected: 'Connecté au live'
         };
-        
+
         this.elements.statusText.textContent = statusTexts[status] || status;
     }
 
     // ========================================
-    // Gift Handling
-    // ========================================
-
-    handleGift(userInfo, coins) {
-        // Don't update if timer is frozen
-        if (this.state.timerFrozen) {
-            return;
-        }
-
-        const userId = userInfo.userId || userInfo.uniqueId;
-        
-        if (this.state.users.has(userId)) {
-            // Update existing user
-            const user = this.state.users.get(userId);
-            user.coins += coins;
-        } else {
-            // Add new user
-            this.state.users.set(userId, {
-                userId: userId,
-                username: userInfo.username || userInfo.uniqueId,
-                avatar: userInfo.profilePictureUrl || this.getDefaultAvatar(),
-                coins: coins,
-                rank: 0
-            });
-        }
-
-        // Update rankings and render
-        this.updateRankings();
-        this.renderLeaderboard();
-    }
-
-    getDefaultAvatar() {
-        // Generate a colorful default avatar using DiceBear API
-        const seed = Math.random().toString(36).substring(7);
-        return `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
-    }
-
-    updateRankings() {
-        // Sort users by coins (descending)
-        const sortedUsers = Array.from(this.state.users.values())
-            .sort((a, b) => b.coins - a.coins);
-
-        // Update ranks
-        sortedUsers.forEach((user, index) => {
-            user.rank = index + 1;
-        });
-    }
-
-    // ========================================
-    // Timer Logic
+    // Timer Controls (now sends commands to server)
     // ========================================
 
     setTimerDuration(seconds) {
-        if (this.state.timerRunning) {
-            if (!confirm('Le timer est en cours. Voulez-vous le réinitialiser ?')) {
-                return;
-            }
-            this.pauseTimer();
-        }
-
-        this.config.timerDuration = seconds;
-        this.state.timerTotal = seconds;
-        this.state.timerRemaining = seconds;
-        this.state.timerFrozen = false;
-        this.updateTimerDisplay();
-    }
-
-    startTimer() {
-        if (this.state.timerFrozen) {
-            alert('Le timer est gelé. Cliquez sur Reset pour recommencer.');
-            return;
-        }
-
-        if (this.state.timerRemaining <= 0) {
-            this.state.timerRemaining = this.state.timerTotal;
-        }
-
-        this.state.timerRunning = true;
-        this.elements.startTimer.disabled = true;
-        this.elements.pauseTimer.disabled = false;
-
-        this.state.timerInterval = setInterval(() => {
-            this.state.timerRemaining--;
-            this.updateTimerDisplay();
-
-            if (this.state.timerRemaining <= 0) {
-                this.freezeTimer();
-            }
-        }, 1000);
-    }
-
-    pauseTimer() {
-        this.state.timerRunning = false;
-        clearInterval(this.state.timerInterval);
-        this.elements.startTimer.disabled = false;
-        this.elements.pauseTimer.disabled = true;
-    }
-
-    resetTimer() {
-        this.pauseTimer();
-        this.state.timerRemaining = this.state.timerTotal;
-        this.state.timerFrozen = false;
-        this.elements.timerDisplay.classList.remove('frozen');
-        
-        // Clear all users data
-        if (confirm('Voulez-vous également effacer le classement ?')) {
-            this.state.users.clear();
-            this.renderLeaderboard();
-        }
-        
-        this.updateTimerDisplay();
-    }
-
-    freezeTimer() {
-        this.pauseTimer();
-        this.state.timerFrozen = true;
-        this.elements.timerDisplay.classList.add('frozen');
-        this.elements.startTimer.disabled = true;
-        
-        console.log('⏱️ Timer gelé ! Classement final :');
-        this.logFinalRankings();
-    }
-
-    updateTimerDisplay() {
-        const minutes = Math.floor(this.state.timerRemaining / 60);
-        const seconds = this.state.timerRemaining % 60;
-        const display = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-        this.elements.timerDisplay.textContent = display;
-    }
-
-    logFinalRankings() {
-        const rankings = Array.from(this.state.users.values())
-            .sort((a, b) => b.coins - a.coins);
-        
-        rankings.forEach((user, index) => {
-            console.log(`#${index + 1} - ${user.username}: ${user.coins} pièces`);
-        });
+        this.sendCommand('timer:setDuration', { seconds: seconds });
     }
 
     updatePresetButtons(activeBtn) {
@@ -383,25 +324,23 @@ class AuctionBoard {
     }
 
     // ========================================
-    // Leaderboard Rendering
+    // Leaderboard Rendering (reads from server data)
     // ========================================
 
-    renderLeaderboard() {
-        const sortedUsers = Array.from(this.state.users.values())
-            .sort((a, b) => b.coins - a.coins)
-            .slice(0, this.config.maxDisplay);
+    renderLeaderboard(users) {
+        const displayUsers = users.slice(0, this.config.maxDisplay);
 
         // Clear existing cards
         this.elements.leaderboard.innerHTML = '';
 
         // Render new cards
-        sortedUsers.forEach((user, index) => {
+        displayUsers.forEach((user, index) => {
             const card = this.createLeaderboardCard(user, index + 1);
             this.elements.leaderboard.appendChild(card);
         });
 
         // Show empty state if no users
-        if (sortedUsers.length === 0) {
+        if (displayUsers.length === 0) {
             this.elements.leaderboard.innerHTML = `
                 <div style="text-align: center; padding: 3rem; color: var(--text-muted);">
                     <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">En attente de donations...</p>
@@ -414,9 +353,9 @@ class AuctionBoard {
     createLeaderboardCard(user, rank) {
         const card = document.createElement('div');
         card.className = `leaderboard-card rank-${rank <= 3 ? rank : 'other'}`;
-        
+
         const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
-        
+
         card.innerHTML = `
             <div class="rank-badge ${rankClass}">
                 ${rank <= 3 ? '' : rank}
@@ -448,7 +387,6 @@ class AuctionBoard {
         const prefs = {
             autoStart: this.config.autoStart,
             maxDisplay: this.config.maxDisplay,
-            timerDuration: this.config.timerDuration,
         };
         localStorage.setItem('auctionBoardPrefs', JSON.stringify(prefs));
     }
@@ -460,14 +398,10 @@ class AuctionBoard {
                 const prefs = JSON.parse(saved);
                 this.config.autoStart = prefs.autoStart || false;
                 this.config.maxDisplay = prefs.maxDisplay || 5;
-                this.config.timerDuration = prefs.timerDuration || 60;
 
                 // Update UI
                 this.elements.autoStart.checked = this.config.autoStart;
                 this.elements.maxDisplay.value = this.config.maxDisplay;
-                this.state.timerTotal = this.config.timerDuration;
-                this.state.timerRemaining = this.config.timerDuration;
-                this.updateTimerDisplay();
             } catch (e) {
                 console.error('Error loading preferences:', e);
             }
@@ -479,5 +413,5 @@ class AuctionBoard {
 document.addEventListener('DOMContentLoaded', () => {
     window.auctionBoard = new AuctionBoard();
     console.log('🎯 TikTok Auction Board initialized');
-    console.log('💡 Tip: Press SPACE to start/pause timer, CTRL+R to reset');
+    console.log('💡 WebSocket-driven mode: all state managed server-side');
 });
