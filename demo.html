@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live - Démo Tableau d'Enchères</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0a0a1e 0%, #1a1a3e 50%, #2a1a4e 100%);
+        }
+
+        .demo-banner {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 215, 0, 0.9);
+            color: #0a0a1e;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 700;
+            box-shadow: 0 4px 16px rgba(255, 215, 0, 0.4);
+            z-index: 1000;
+        }
+    </style>
+</head>
+
+<body class="obs-mode">
+    <div class="demo-banner">
+        🎨 MODE DÉMO - Design Preview
+    </div>
+
+    <!-- Main Overlay -->
+    <div class="main-overlay">
+        <!-- Title -->
+        <div class="title-container">
+            <h1 class="main-title">FAIRE DES ENCHÈRES TIKTOK</h1>
+        </div>
+
+        <!-- Timer Display -->
+        <div class="timer-container">
+            <div class="timer-display">0:19</div>
+        </div>
+
+        <!-- Leaderboard -->
+        <div class="leaderboard">
+            <!-- Rank 1 -->
+            <div class="leaderboard-card rank-1">
+                <div class="rank-badge rank-1"></div>
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=chicken" alt="chicken star"
+                    class="user-avatar">
+                <div class="user-info">
+                    <div class="username">💖 chicken star 💖</div>
+                    <div class="coin-count">
+                        <span class="coin-icon">🪙</span>
+                        <span>89</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rank 2 -->
+            <div class="leaderboard-card rank-2">
+                <div class="rank-badge rank-2"></div>
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=trading" alt="By Trading" class="user-avatar">
+                <div class="user-info">
+                    <div class="username">By Trading</div>
+                    <div class="coin-count">
+                        <span class="coin-icon">🪙</span>
+                        <span>45</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rank 3 -->
+            <div class="leaderboard-card rank-3">
+                <div class="rank-badge rank-3"></div>
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=gamer123" alt="Gamer123" class="user-avatar">
+                <div class="user-info">
+                    <div class="username">Gamer123</div>
+                    <div class="coin-count">
+                        <span class="coin-icon">🪙</span>
+                        <span>32</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rank 4 -->
+            <div class="leaderboard-card rank-other">
+                <div class="rank-badge rank-other">4</div>
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=tiktokfan" alt="TikTokFan"
+                    class="user-avatar">
+                <div class="user-info">
+                    <div class="username">TikTokFan</div>
+                    <div class="coin-count">
+                        <span class="coin-icon">🪙</span>
+                        <span>18</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rank 5 -->
+            <div class="leaderboard-card rank-other">
+                <div class="rank-badge rank-other">5</div>
+                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=streamer" alt="ProStreamer"
+                    class="user-avatar">
+                <div class="user-info">
+                    <div class="username">ProStreamer</div>
+                    <div class="coin-count">
+                        <span class="coin-icon">🪙</span>
+                        <span>12</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer branding -->
+        <div class="footer-brand">
+            <span class="brand-text">TikLink</span>
+        </div>
+    </div>
+
+    <script>
+        // Simple animation for demo
+        let countdown = 19;
+        const timerEl = document.querySelector('.timer-display');
+
+        setInterval(() => {
+            countdown--;
+            if (countdown < 0) countdown = 19;
+            timerEl.textContent = `0:${countdown.toString().padStart(2, '0')}`;
+        }, 1000);
+
+        // Add animation to cards
+        const cards = document.querySelectorAll('.leaderboard-card');
+        cards.forEach((card, index) => {
+            card.style.animationDelay = `${index * 0.1}s`;
+        });
+    </script>
+</body>
+
+</html>

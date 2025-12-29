@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live - Tableau d'Enchères</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Control Panel (hidden in OBS mode) -->
+    <div id="controlPanel" class="control-panel">
+        <div class="control-header">
+            <h3>⚙️ Configuration</h3>
+            <button id="toggleOBS" class="btn-toggle" title="Toggle OBS Mode">
+                👁️ OBS
+            </button>
+        </div>
+        
+        <div class="control-section">
+            <label>Connexion TikTok Live</label>
+            <div class="input-group">
+                <input type="text" id="tiktokUsername" placeholder="@username" />
+                <button id="connectBtn" class="btn-primary">Se connecter</button>
+            </div>
+            <div id="connectionStatus" class="status disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Déconnecté</span>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <label>Durée du Timer</label>
+            <div class="timer-presets">
+                <button class="preset-btn" data-seconds="10">10s</button>
+                <button class="preset-btn" data-seconds="30">30s</button>
+                <button class="preset-btn active" data-seconds="60">1min</button>
+                <button class="preset-btn" data-seconds="300">5min</button>
+            </div>
+            <div class="input-group">
+                <input type="number" id="customTimer" placeholder="Secondes" min="1" />
+                <button id="setCustomTimer" class="btn-secondary">Custom</button>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <label>Contrôles</label>
+            <div class="control-buttons">
+                <button id="startTimer" class="btn-success">▶️ Démarrer</button>
+                <button id="pauseTimer" class="btn-warning" disabled>⏸️ Pause</button>
+                <button id="resetTimer" class="btn-danger">🔄 Reset</button>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <label>Options</label>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" id="autoStart" />
+                    Démarrage auto à la connexion
+                </label>
+                <label>
+                    <input type="number" id="maxDisplay" value="5" min="3" max="20" />
+                    Positions affichées
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Overlay -->
+    <div id="mainOverlay" class="main-overlay">
+        <!-- Title -->
+        <div class="title-container">
+            <h1 class="main-title">FAIRE DES ENCHÈRES TIKTOK</h1>
+        </div>
+
+        <!-- Timer Display -->
+        <div class="timer-container">
+            <div id="timerDisplay" class="timer-display">0:00</div>
+        </div>
+
+        <!-- Leaderboard -->
+        <div id="leaderboard" class="leaderboard">
+            <!-- Dynamic cards will be injected here -->
+        </div>
+
+        <!-- Footer branding (optional) -->
+        <div class="footer-brand">
+            <span class="brand-text">TikLink</span>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
