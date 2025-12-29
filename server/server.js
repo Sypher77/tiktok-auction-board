@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const { WebcastPushConnection } = require('tiktok-live-connector');
 
 const app = express();
 const server = http.createServer(app);
@@ -25,6 +26,9 @@ const globalState = {
     tiktokConnected: false,
     tiktokUsername: null
 };
+
+// TikTok Live Connection
+let tiktokConnection = null;
 
 // servir les fichiers du dossier parent (index.html + admin.html)
 app.use(express.static(path.join(__dirname, '..')));
@@ -275,17 +279,11 @@ function handleClientMessage(ws, data) {
             }
             break;
 
-        // TikTok connection
+        // TikTok connection - SERVER-SIDE ONLY
         case 'connect':
-            // This would connect to TikTok Live (not implemented in this sync-only version)
-            console.log(`🔗 TikTok connection requested: @${data.username}`);
-            globalState.tiktokConnected = true;
-            globalState.tiktokUsername = data.username;
-
-            ws.send(JSON.stringify({
-                type: 'connected',
-                username: data.username
-            }));
+            if (data.username) {
+                connectToTikTokLive(data.username, ws);
+            }
             break;
 
         // Gift simulation (for testing)
@@ -300,6 +298,102 @@ function handleClientMessage(ws, data) {
 
         default:
             console.log(`⚠️ Unknown message type: ${data.type}`);
+    }
+}
+
+// ========================================
+// TIKTOK LIVE CONNECTION (SERVER-SIDE)
+// ========================================
+
+function connectToTikTokLive(username, ws) {
+    console.log(`🔗 Connecting to TikTok Live: @${username}`);
+
+    // Close existing connection if any
+    if (tiktokConnection) {
+        console.log('🔌 Closing previous TikTok connection');
+        tiktokConnection.disconnect();
+        tiktokConnection = null;
+    }
+
+    try {
+        // Create new TikTok Live connection
+        tiktokConnection = new WebcastPushConnection(username, {
+            processInitialData: true,
+            enableExtendedGiftInfo: true,
+            enableWebsocketUpgrade: true,
+            requestPollingIntervalMs: 1000,
+        });
+
+        // Connection established
+        tiktokConnection.connect().then(state => {
+            console.log(`✅ Connected to TikTok Live: @${state.roomInfo.owner.uniqueId}`);
+
+            globalState.tiktokConnected = true;
+            globalState.tiktokUsername = username;
+
+            // Send confirmation to all clients
+            broadcast({
+                type: 'connected',
+                username: username
+            });
+
+        }).catch(err => {
+            console.error('❌ Failed to connect to TikTok Live:', err);
+
+            globalState.tiktokConnected = false;
+            globalState.tiktokUsername = null;
+
+            // Send error to requesting client
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    message: `Impossible de se connecter au live de @${username}`
+                }));
+            }
+        });
+
+        // Listen for gifts
+        tiktokConnection.on('gift', data => {
+            console.log(`🎁 Gift received: ${data.giftName} x${data.repeatCount} from @${data.uniqueId}`);
+
+            // Calculate coins value
+            const giftCoins = (data.diamondCount || 1) * (data.repeatCount || 1);
+
+            const userInfo = {
+                userId: data.userId,
+                uniqueId: data.uniqueId,
+                username: data.nickname || data.uniqueId,
+                profilePictureUrl: data.profilePictureUrl
+            };
+
+            // Update server-side leaderboard
+            handleGift(userInfo, giftCoins);
+        });
+
+        // Listen for connection state changes
+        tiktokConnection.on('disconnected', () => {
+            console.log('🔌 TikTok connection disconnected');
+            globalState.tiktokConnected = false;
+
+            broadcast({
+                type: 'tiktok:disconnected'
+            });
+        });
+
+        // Listen for errors
+        tiktokConnection.on('error', err => {
+            console.error('❌ TikTok connection error:', err);
+        });
+
+    } catch (error) {
+        console.error('❌ Error creating TikTok connection:', error);
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Erreur lors de la création de la connexion TikTok'
+            }));
+        }
     }
 }
 

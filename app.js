@@ -22,12 +22,6 @@ class AuctionBoard {
 
         // DOM Elements
         this.elements = {
-            // Control Panel
-            tiktokUsername: document.getElementById('tiktokUsername'),
-            connectBtn: document.getElementById('connectBtn'),
-            connectionStatus: document.getElementById('connectionStatus'),
-            statusText: document.querySelector('.status-text'),
-
             // Timer Controls
             presetBtns: document.querySelectorAll('.preset-btn'),
             customTimer: document.getElementById('customTimer'),
@@ -73,9 +67,6 @@ class AuctionBoard {
     }
 
     setupEventListeners() {
-        // Connection
-        this.elements.connectBtn.addEventListener('click', () => this.connectToTikTok());
-
         // Timer presets
         this.elements.presetBtns.forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -209,15 +200,19 @@ class AuctionBoard {
                 this.handleLeaderboardUpdate(data);
                 break;
 
+            case 'gift':
+                // Gift received from server (already processed)
+                // Just update the leaderboard display
+                console.log('🎁 Gift event received from server');
+                break;
+
             case 'connected':
                 // TikTok connection confirmed
-                this.updateConnectionStatus('connected');
-                this.elements.connectBtn.textContent = 'Connecté ✓';
+                console.log('✅ TikTok connected');
                 break;
 
             case 'error':
                 console.error('Server error:', data.message);
-                alert('Erreur: ' + data.message);
                 break;
 
             default:
@@ -269,43 +264,6 @@ class AuctionBoard {
         // Update button states
         this.elements.startTimer.disabled = running || frozen;
         this.elements.pauseTimer.disabled = !running;
-    }
-
-    // ========================================
-    // TikTok Connection (keeps existing logic)
-    // ========================================
-
-    connectToTikTok() {
-        const username = this.elements.tiktokUsername.value.trim().replace('@', '');
-
-        if (!username) {
-            alert('Veuillez entrer un nom d\'utilisateur TikTok');
-            return;
-        }
-
-        this.updateConnectionStatus('connecting');
-        this.elements.connectBtn.disabled = true;
-        this.elements.connectBtn.textContent = 'Connexion...';
-
-        // Send connection request to server
-        this.sendCommand('connect', { username: username });
-
-        // Auto-start timer if enabled
-        if (this.config.autoStart) {
-            setTimeout(() => this.sendCommand('timer:start'), 1000);
-        }
-    }
-
-    updateConnectionStatus(status) {
-        this.elements.connectionStatus.className = `status ${status}`;
-
-        const statusTexts = {
-            disconnected: 'Déconnecté',
-            connecting: 'Connexion...',
-            connected: 'Connecté au live'
-        };
-
-        this.elements.statusText.textContent = statusTexts[status] || status;
     }
 
     // ========================================
